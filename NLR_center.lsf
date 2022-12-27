@@ -1,0 +1,268 @@
+# Initialize simulation parameters for base structure simulation
+if(exist("sub_run")){
+    if(!sub_run){
+        NLR_initialize;
+    }
+}else{
+    NLR_initialize;
+}
+cleardcard;
+lambda = lambda_0;
+w = w_0;
+t = t_0;		# waveguide thickness
+
+w_sidewall = t/tan((pi/180)*sidewall);
+w_total = sum(w);
+
+edge = w_total/2;	# distance from center to edge
+r = r_0;		# waveguide inner radius
+r_center = r_0 + edge;	# radius to center of waveguide
+C = 2*pi*(r_center+center_offset);	# circumfrence
+
+# configure simulation file with parameters
+# note: waveguide bend radius is measured to the center of the simulation area
+switchtolayout;
+select("FDE");
+set("dx",base_mesh);
+set("dy",base_mesh);
+set("use max index",1);
+set("bent waveguide",1);
+set("bend radius",r_center+center_offset);
+set("x min",-1*(edge+space_in));
+set("x max",(edge+space_out));
+set("use max index",1);
+
+setnamed("wg","enabled",0);
+
+select("ring");
+set("width",w_total);
+set("height",t);
+set("sidewall", sidewall);
+set("resist",HSQ);
+set("height_resist",t_resist);
+
+if(length(w) > 1){
+    select("gap");
+    set("enabled",1);
+    x_next = w(1)-edge;
+    y_max = getnamed("FDE","y max");
+    vert = 0;
+    for(ig = 2:2:length(w)){
+        vert_next = [x_next,y_max; x_next,t; x_next+w_sidewall,0; x_next+w(ig)-w_sidewall,0; x_next+w(ig),t; x_next+w(ig),y_max];
+        x_next = x_next + w(ig) + w(ig+1); 
+        if(vert == 0){
+            vert = vert_next;
+        }else{
+            vert = [vert;vert_next];
+        }
+    }
+    set("vertices",vert);
+}else{
+    setnamed("gap","enabled",0);
+}
+
+if(single_wavelength){
+    mode_run = single_wavelength;
+}else{
+    if(SHG){
+        mode_run = [1,3];
+    }else{
+        mode_run = [1,2,3];
+    }
+}
+
+neff = matrix(1+group_calc,3);
+m_group = matrix(1,3);
+m = matrix(1+group_calc,3);
+opt_mode = matrix(1+group_calc,3);
+
+for(ig = 0:group_calc){
+    for(ii = mode_run){
+        
+        switchtolayout;
+        select("FDE");
+        set("wavelength", lambda(ii) + ig*group_lambda);
+        if(v_order(ii) + h_order(ii) == 0){
+            set("number of trial modes",mode_fund_test);
+        }else{
+            set("number of trial modes",mode_higher_test);
+        }
+        
+        findmodes;
+        if(ig==0){
+            copydcard(mat,"G_str_" + num2str(ii));
+        }
+        n = pinch(getdata(mat,"index_x"));
+        mode_x = getdata(mat,"x");
+        mode_y = getdata(mat,"y");
+        
+        polar_modes = 0;
+        target_mode = 0;
+        #h_modes = 0;
+        
+        
+        for(ij = 1:nummodes){
+            pol = getdata(mode + num2str(ij),"TE polarization fraction");
+            if(abs(pol - (!TM(ii))) < polar_threshold){
+                if(polar_modes == 0){
+                    polar_modes = ij;
+                }else{
+                    polar_modes = [polar_modes, ij];
+                }
+            }
+        }
+                
+        mode_v_cross = zeros(1,length(polar_modes));
+        mode_h_cross = zeros(1,length(polar_modes));
+        
+        
+        for(ij = 1:length(polar_modes)){
+            if(!target_mode){
+                if(TM(ii)){
+                    field = pinch(real(getdata(mode + num2str(polar_modes(ij)),"Ey")));
+                }else{
+                    field = pinch(real(getdata(mode + num2str(polar_modes(ij)),"Ex")));
+                }
+                
+                disp = n*field;
+                
+                v_sign = 0;
+                v_cross = 0;
+                v_peak = 0;
+                disp_sum_y = 0;
+                
+                for(iy = 1:length(mode_y)){
+                    if((mode_y(iy)>0) & (mode_y(iy)<t)){
+                        sum_old = disp_sum_y;
+                        disp_sum_y = sum(abs(disp(1:length(mode_x),iy)));
+                        if(v_sign){
+                            if(disp_sum_y < sum_old){
+                                v_sign = 0;
+                                v_peak = v_peak+1;
+                            }
+                        }else{
+                            if(disp_sum_y > sum_old){
+                                v_sign = 1;
+                            }  
+                        }             
+                        #if(sign(disp_sum_y) == -1*v_sign){
+                            #v_cross = v_cross + 1;
+                        #}
+                        #v_sign = sign(disp_sum_y);
+                    }
+                }
+                v_cross = v_peak - 1;
+                mode_v_cross(ij) = v_cross;
+                
+                if(v_cross == v_order(ii)){
+                    h_sign = 0;
+                    h_cross = 0;
+                    h_peak = 0;
+                    disp_sum_x = 0;
+                    
+                    for(ix = 1:length(mode_x)){
+                        
+                        if((mode_x(ix) > (-edge+10e-9)) & (mode_x(ix) < (edge-10e-9))){
+                            sum_old = disp_sum_x;
+                            disp_sum_x = sum(abs(disp(ix,1:length(mode_y))));
+                            
+                            if(h_sign){
+                                if(disp_sum_x < sum_old){
+                                    h_sign = 0;
+                                    h_peak = h_peak+1;
+                                }
+                            }else{
+                                if(disp_sum_x > sum_old){
+                                    h_sign = 1;
+                                }
+                            }
+                            #if(sign(disp_sum_x) == -1*h_sign){
+                                #h_cross = h_cross + 1;
+                            #}
+                            #h_sign = sign(disp_sum_x);
+                        }
+                    }
+                    h_cross = h_peak - 1;
+                    if(h_cross == h_order(ii)){
+                        target_mode = polar_modes(ij);
+                    }
+                    
+                    mode_h_cross(ij) = h_cross;
+                }
+            }
+        }
+        
+        opt_mode(ig+1,ii) = target_mode;
+        selectmode(target_mode);
+        
+        
+        neff(ig+1,ii) = real(getdata(mode+num2str(target_mode),"neff"));
+        m(ig+1,ii) = C*neff(ig+1,ii)/lambda(ii);
+        
+        if(ig==0){
+            copydcard(mode + num2str(target_mode), "G_mode_" + num2str(ii));
+            save("mode_" + num2str(ii) + ".lms");
+            save("ring_XC.lms");
+            if(fileexists(pwd + "/" + data_path + "mode_" + num2str(ii) + ".lms")){
+                rm(pwd + "/" + data_path + "mode_" + num2str(ii) + ".lms");
+            }
+            mv("mode_" + num2str(ii) + ".lms",data_path + "mode_" + num2str(ii) + ".lms");
+        }
+        if(pause_data){
+            pause(10000); # Pause to examine modes
+        }
+    }
+}
+if(SHG){
+    neff(1:1+group_calc,2) = neff(1:1+group_calc,1);
+    m(1:1+group_calc,2) = m(1:1+group_calc,1);
+    copydcard("G_str_1","G_str_2");
+    copydcard("G_mode_1","G_mode_2");
+}
+
+if(group_calc){
+    m_group = m(1,1:3) - (lambda/group_lambda)*(m(2,1:3)-m(1,1:3));
+}
+
+
+if(!single_wavelength){
+    match = m(1,1) + m(1,2) - m(1,3);
+    Calc_Beta;
+    
+    
+    ?[match, abs(beta), abs(off_beta)];
+    ?m;
+    
+    V1_rel = vol_1/((lambda(1)/(neff(1)*(r_center+center_offset)/r_center))^3);
+    V2_rel = vol_2/((lambda(2)/(neff(2)*(r_center+center_offset)/r_center))^3);
+    V3_rel = vol_3/((lambda(3)/(neff(3)*(r_center+center_offset)/r_center))^3);
+    
+    ?[V1_rel,V2_rel,V3_rel];
+    ?"";
+    
+    if(plot_data){
+        closeall;
+        image(x,y,abs(getdata("G_mode_1","Ex")));
+        image(x,y,abs(getdata("G_mode_1","Ey")));
+        image(x,y,abs(getdata("G_mode_1","Ez")));
+        if(!SHG){
+            image(x,y,abs(getdata("G_mode_2","Ex")));
+            image(x,y,abs(getdata("G_mode_2","Ey")));
+            image(x,y,abs(getdata("G_mode_2","Ez")));
+        }
+        image(x,y,abs(getdata("G_mode_3","Ex")));
+        image(x,y,abs(getdata("G_mode_3","Ey")));
+        image(x,y,abs(getdata("G_mode_3","Ez")));
+    }
+    if(plot_overlap){
+        image(x,y,over);
+        image(x,y,off_over);
+    }
+    savedcard(data_path + "modes","G_mode_1","G_str_1","G_mode_2","G_str_2","G_mode_3","G_str_3");
+    savedata(data_path + "parameters", lambda,t,r,w,C,SHG,TM,h_order,v_order,opt_mode);
+    savedata(data_path + "results", neff,m,match,beta,off_beta,V1_rel,V2_rel,V3_rel,m_group);
+} else {
+    savedcard(data_path + "modes","G_mode_"+num2str(single_wavelength),"G_str_"+num2str(single_wavelength));
+    savedata(data_path + "parameters", lambda,t,r,w,C,SHG,TM,h_order,v_order,opt_mode,single_wavelength);
+    savedata(data_path + "results", neff,m,m_group);
+}

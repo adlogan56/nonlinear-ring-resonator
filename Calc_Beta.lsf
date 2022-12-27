@@ -1,0 +1,122 @@
+x = getdata("G_mode_1","x");
+y = getdata("G_mode_1","y");
+x_px = length(x);
+y_px = length(y);
+
+E1r = getdata("G_mode_1","Ex");
+E1z = getdata("G_mode_1","Ey");
+E1t = getdata("G_mode_1","Ez");
+
+E2r = getdata("G_mode_2","Ex");
+E2z = getdata("G_mode_2","Ey");
+E2t = getdata("G_mode_2","Ez");
+
+E1cr = conj(E1r);
+E1cz = conj(E1z);
+E1ct = conj(E1t);
+
+E2cr = conj(E2r);
+E2cz = conj(E2z);
+E2ct = conj(E2t);
+
+E3r = getdata("G_mode_3","Ex");
+E3z = getdata("G_mode_3","Ey");
+E3t = getdata("G_mode_3","Ez");
+
+n1 = getdata("G_str_1","index_x");
+n2 = getdata("G_str_2","index_x");
+n3 = getdata("G_str_3","index_x");
+
+eps1 = (n1^2);
+eps2 = (n2^2);
+eps3 = (n3^2);
+
+#over_simple = E1cr*E2cr*E3z;
+#over_simple = over_simple*(n3>2.7);
+
+#over_plus = (E1cr-1i*E1ct)*(E2cr-1i*E2ct)*E3z
+#+ (E1cr-1i*E1ct)*E2cz*(E3r-1i*E3t)
+#+ E1cz*(E2cr-1i*E2ct)*(E3r-1i*E3t);
+
+if(xtal_orient){
+    
+    over = (2/sqrt(3))*(2*E1cz*E2cz*E3z
+    - (E1cr*E2cr*E3z + E1cr*E2cz*E3r + E1cz*E2cr*E3r)
+    - (E1ct*E2ct*E3z + E1ct*E2cz*E3t + E1cz*E2ct*E3t));
+    
+    over = over*(n3>2.7);
+    off_over = over;
+
+}else{
+    
+    over_plus = (E1cr-1i*E1ct)*(E2cr-1i*E2ct)*E3z
+    + (E1cr-1i*E1ct)*E2cz*(E3r-1i*E3t)
+    + E1cz*(E2cr-1i*E2ct)*(E3r-1i*E3t);
+    
+    over_minus = (E1cr+1i*E1ct)*(E2cr+1i*E2ct)*E3z
+    + (E1cr+1i*E1ct)*E2cz*(E3r+1i*E3t)
+    + E1cz*(E2cr+1i*E2ct)*(E3r+1i*E3t);
+    
+    if(match>0){
+        over = over_plus;
+        off_over = over_minus;
+    }else{
+        over = over_minus;
+        off_over = over_plus;
+    }
+    
+    #over_simple = over_simple*(n3>2);
+    
+    over = over*(n3>2.7);
+    off_over = off_over*(n3>2.7);
+}
+
+E1_2_0 = abs(E1r)^2 + abs(E1t)^2 + abs(E1z)^2;
+E2_2_0 = abs(E2r)^2 + abs(E2t)^2 + abs(E2z)^2;
+E3_2_0 = abs(E3r)^2 + abs(E3t)^2 + abs(E3z)^2;
+E1_2 = E1_2_0;
+E2_2 = E2_2_0;
+E3_2 = E3_2_0;
+
+for(ib=1:x_px){
+    over(ib,1:y_px,1,1) = 2*pi*over(ib,1:y_px)*(r_center+x(ib));
+    if(!xtal_orient){
+        off_over(ib,1:y_px,1,1) = 2*pi*off_over(ib,1:y_px)*(r_center+x(ib));
+    }
+    #over_simple(ib,1:y_px,1,1) = 2*pi*over_simple(ib,1:y_px)*(r_center+x(ib));
+    E1_2(ib,1:y_px,1,1) = 2*pi*E1_2(ib,1:y_px)*(r_center+x(ib));
+    E2_2(ib,1:y_px,1,1) = 2*pi*E2_2(ib,1:y_px)*(r_center+x(ib));
+    E3_2(ib,1:y_px,1,1) = 2*pi*E3_2(ib,1:y_px)*(r_center+x(ib));
+}
+
+E1_total = integrate(eps1*E1_2, 1:2,x,y);
+E2_total = integrate(eps2*E2_2, 1:2,x,y);
+E3_total = integrate(eps3*E3_2, 1:2,x,y);
+
+over_total = (integrate(over,1:2,x,y));
+if(xtal_orient){
+    off_over_total = over_total;
+}else{
+    off_over_total = (integrate(off_over,1:2,x,y));
+}
+#simple_over_total = (integrate(over_simple,1:2,x,y));
+E_total = sqrt(E1_total*E2_total*E3_total);
+
+if(SHG){
+    beta = 0.5*sqrt((lambda(3))^3)*over_total/E_total;
+    off_beta = 0.5*sqrt((lambda(3))^3)*off_over_total/E_total;
+    #simple_beta = 0.5*sqrt((lambda(3))^3)*simple_over_total/E_total;
+} else {
+    beta = sqrt((lambda(1))^3)*over_total/E_total;
+    off_beta = sqrt((lambda(1))^3)*off_over_total/E_total;
+    #simple_beta = sqrt((lambda(1))^3)*simple_over_total/E_total;
+}
+
+full_beta = (over_total/E_total)*(chi_2_GaP/(4*sqrt(eps0)));
+off_full_beta = (off_over_total/E_total)*(chi_2_GaP/(4*sqrt(eps0)));
+vol_1 = E1_total/(max(eps1*E1_2_0));
+vol_2 = E2_total/(max(eps2*E2_2_0));
+vol_3 = E3_total/(max(eps3*E3_2_0));
+#?abs(beta);
+#G = (over_total/E_total)*(3*chi_2_GaP/sqrt(32))*sqrt((hbar/eps0)*((2*pi*c)^3)/(Lambda1*Lambda2*Lambda3));
+

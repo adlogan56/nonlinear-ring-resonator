@@ -1,0 +1,126 @@
+#w_wg 	= (540:20:600)*1e-9;
+#d_gap 	= (160:20:360)*1e-9;
+
+#w_wg 	= (240:20:440)*1e-9;
+#d_gap 	= (100:20:400)*1e-9;
+
+w_wg 	= (120:10:220)*1e-9;
+d_gap 	= (80:10:200)*1e-9;
+
+
+couple_mode = 3;	# 1 for output, 2 for pump, 3 for input
+ring_mode = "G_mode_" + num2str(couple_mode);
+ring_mode_str = "G_mode_str" + num2str(couple_mode);
+wg_mode = "G_couple_wg";
+wg_mode_str = "G_couple_wg_str";
+
+cd(pwd + "/" + design_path);
+load("mode_" + num2str(couple_mode) + ".lms");
+cd(base_path);
+
+
+
+couple_ring = matrix(length(w_wg),length(d_gap),mode_higher_test);
+couple_wg = matrix(length(w_wg),length(d_gap),mode_higher_test);
+couple_m = matrix(length(w_wg),length(d_gap),mode_higher_test);
+m_wg = matrix(length(w_wg),length(d_gap));
+
+switchtolayout;
+
+setnamed("wg","height_resist",getnamed("ring","height_resist"));
+setnamed("wg","resist",getnamed("ring","resist"));
+setnamed("wg","sidewall",getnamed("ring","sidewall"));
+setnamed("wg","height",getnamed("ring","height"));
+
+# The ring mode and data like wavlength, mode number, group index (group mode number) were simulated previously and loaded for this script
+# For every combination of waveguide and separation widths, reconfigure the simulation file and find modes
+for(iw = 1:length(w_wg)){
+    switchtolayout;
+    setnamed("wg","width",w_wg(iw));
+    for(ig = 1:length(d_gap)){
+        
+        cleardcard("G_couple_wg");
+        switchtolayout;
+        setnamed("wg","x", w/2 + w_wg(iw)/2 + d_gap(ig));
+        
+        # First, simulate the mode for the waveguide alone (no ring)
+        setnamed("ring","enabled",0);
+        setnamed("wg","enabled",1);
+        setnamed("FDE","number of trial modes",mode_fund_test+4);
+        findmodes;
+        
+        found_wg_mode = 0;
+        if(nummodes){
+            # If any modes were found, pick the first (fundamental) mode that matches the target polarization
+            for(curr_mode = 1:nummodes){
+                if(!found_wg_mode){
+                    pol = getdata("FDE::data::mode" + num2str(curr_mode),"TE polarization fraction");
+                    if(abs(pol-(TM(couple_mode)))>polar_threshold){
+                        found_wg_mode = 1;
+                        # Save the waveguide mode                        
+                        copydcard("FDE::data::mode" + num2str(curr_mode),wg_mode);
+                    }
+                }
+            }
+            # Calculate mode number for the waveguide mode
+            m_wg(iw,ig) = C*real(getdata(wg_mode,"neff"))/lambda(couple_mode);
+            
+            # Simulate combined coupling region (ring and waveguide)
+            switchtolayout;
+            setnamed("ring","enabled",1);
+            setnamed("FDE","number of trial modes",mode_higher_test);
+            findmodes;
+            ?nummodes;
+            # Calculate mode overlap and mode numbers for ALL modes in combined coupling region (even if they don't look like supermodes)
+            for(curr_mode = 1:nummodes){
+                # See Lumerical website for details of expand function                
+                # Calculate (complex) field mode overlap between ring mode and coupling region mode
+                exp1 = expand(ring_mode,"FDE::data::mode" + num2str(curr_mode));
+                # Calculate mode overlap between waveguide mode and coupling region mode
+                exp2 = expand(wg_mode,"FDE::data::mode" + num2str(curr_mode));
+                
+                # Normalize expansion coefficients to calculate butt coupling coefficients between wg/ring modes and coupling region mode
+                couple_ring(iw,ig,curr_mode) = real(exp1(1)*sqrt(exp1(3)/exp1(4)));
+                couple_wg(iw,ig,curr_mode) = real(exp2(1)*sqrt(exp2(3)/exp2(4)));
+                
+                # Calculate mode number of coupling region mode                 
+                couple_m(iw,ig,curr_mode) = C*real(getdata("FDE::data::mode" + num2str(curr_mode),"neff"))/lambda(couple_mode);
+            }
+        }
+        
+    }
+}
+
+# Since light can potentially couple from ring to waveguide through several different coupling region modes,
+# calculate field coupling/transmission coefficients and Q for a range of wrap lengths
+
+# Note: under most circumstances, two supermodes dominate the behavior, but in some cases additional modes can have significant effects
+theta = (1:180)*pi/180;
+couple_k = matrix(length(w_wg),length(d_gap),length(theta));
+couple_t = matrix(length(w_wg),length(d_gap),length(theta));
+couple_Q = matrix(length(w_wg),length(d_gap),length(theta));
+
+# Basic approach for coupling or transmission is:
+
+# 1. Light couples from ring mode to coupling region mode (multiply by ring coupling coeff)
+# 2. Phase of light changes due to propagation through the coupling region e^(i*m*theta)
+# 3. Light couples from coupling region mode to waveguide (coupling) or ring (transmission) modes (multiply by appropriate coupling coeff)
+# Repeat for each mode supported by the coupling region, and sum all of the (complex) coupling and transmission values  ---> interference between paths through coupling region
+for(ii = 1:length(theta)){
+    couple_k(1:length(w_wg),1:length(d_gap),ii) = sum(couple_ring*couple_wg*exp(1i*couple_m*theta(ii)),3);
+    couple_t(1:length(w_wg),1:length(d_gap),ii) = sum((couple_ring^2)*exp(1i*couple_m*theta(ii)),3);
+}
+# Calculate coupling quality factor from field coupling coefficient
+# Note: m_group is the group mode number of the ring mode, which is calculated like (or from) the group index
+couple_Q = 2*pi*m_group/(abs(couple_k)^2);
+
+# Transmission coefficient in these simulations overestimates scattering losses
+# because the coupling region is treated as if it begins and ends abruptly,
+# instead of the smooth approach used in actual devices
+
+savedata(design_path + "coupling_" + num2str(couple_mode), couple_mode, w_wg, d_gap, m_wg, couple_ring, couple_wg, couple_m, theta, couple_k, couple_t, couple_Q);
+
+
+image(w_wg,d_gap,log10(pinch(amin(couple_Q,3))));
+
+plot(d_gap, log10(transpose(pinch(amin(couple_Q,3)))));

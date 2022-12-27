@@ -1,0 +1,95 @@
+#Stores and initializes basic simulation parameters
+
+# Abbreviations for commonly used long strings
+mode = "FDE::data::mode";
+mat = "FDE::data::material";
+
+lambda_emitter = [637,738,946]*1e-9;   # ZPL wavelengths for NV-, SiV-, and SiV0
+lambda_channel = [1550, 1310]*1e-9;    # Telecom C and O band wavelengths
+emitter_wl = 1;     # Pick emitter wavelength
+channel_wl = 1;     # Pick transmission channel wavelength
+SHG = 0;		# Sets algorithm to second harmonic generation, with output at half of channel wavelength
+                        # Defaults to DFG (emitter <-> channel + pump)
+xtal_orient = 0;	# 0 for [100], 1 for [111]
+SiN_sub = 0;
+
+data_path = "Designs/Temp/";	# save d-cards of the selected mode profiles
+
+plot_data = 0;	# if true, center simulations will plot field profiles and sweeps will plot result variations
+plot_overlap = 1;
+pause_data = 0;	# pause to examine each mode
+
+HSQ = 1;		# if true, adds a layer of HSQ (SiO2) on top of the ring
+t_resist = 80e-9;	# HSQ thickness
+sidewall = 85;	# sidewall angle (degrees)
+
+polar_threshold = 0.6;
+v_order = abs([0,0,0]);	# Target vertical splitting of each mode	
+h_order = abs([0,0,3]);	# Target horizontal splitting of each mode
+TM = [0,0,1];		# Target TE (0) or TM (1) modes;
+single_wavelength = 0;
+
+group_calc = 0;
+group_lambda = 10e-9;
+
+
+t_0 = 430e-9;		# base wavegudie thickness
+w_0 = [690e-9];#[940e-9];#	# base waveguide inner ring width, alternating rings and gaps
+r_0 = 4960e-9;#1600e-9;# ;	# base waveguide inner radius
+
+if(mod(length(w_0),2)!=1){
+    break;
+}
+
+space_in = 1000e-9;	# spacing between inner edge of ring and simulation bounds
+space_out = 2000e-9;	#	"" outer
+center_offset = (space_out-space_in)/2;	#offset between center of ring and center of simulation region
+base_mesh = 10e-9;
+
+lambda_0 = zeros(1,3);
+
+lambda_0(1) = lambda_channel(channel_wl);
+if(SHG){
+    lambda_0(2) = lambda_0(1);
+    lambda_0(3) = lambda_0(1)/2;
+}else{
+    lambda_0(3) = lambda_emitter(emitter_wl);
+    lambda_0(2) = 1/abs(1/lambda_0(3) - 1/lambda_0(1));	# pump wavelength
+}
+
+
+#number of modes to test for input wavelength
+mode_fund_test = 6;
+mode_higher_test = 16;
+
+#sweep parameters
+range = [-15,-10,-5,0,5,10,15];	# normalized range of sweep
+#range = 0;
+dt = 5e-9;		# step size for thickness
+dw1 = 5e-9;		# "" for inner ring width
+dw2 = 2e-9;		# "" for gap width
+dw3 = 2e-9;		# "" for outer ring width
+dR = 1e-8;		# radius
+dL = 5e-9;	
+
+sub_run = 0;	# marks whether a sweep is being run as part of a larger script
+
+
+n_GaP_637 = 3.31;	# refractive index for GaP at indicated wavelengths from Bond, 1965
+n_GaP_1080 = 3.1;
+n_GaP_1550 = 3.054;
+n_GaP_775	= 3.2;
+
+n_SiO2_637 = 1.457;	# refractive index for SiO2 at indicated wavelengths from Maltison, 1965
+n_SiO2_1080 = 1.45;
+n_SiO2_1550 = 1.443;
+n_SiO2_775 = 1.454;
+
+chi_2_GaP = 100e-12;		#Dal Corso, et. al., PRB 1996, approximate
+
+if(SiN_sub){
+    load("ring_XC_SiN.lms");
+}else{
+    load("ring_XC.lms");
+    
+}

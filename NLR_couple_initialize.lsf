@@ -1,0 +1,15 @@
+cleardcard;
+design_path = "Designs/SiN_SHG250_637TM_R8400_W800/";
+save_file = design_path + "coupling.txt";
+base_path = pwd;
+
+loaddata(design_path + "modes.ldf");
+loaddata(design_path + "parameters.ldf");
+loaddata(design_path + "results.ldf");
+
+#if(!fileexists(save_file)){
+    #write(save_file,"L1	L2	L3	m1	m2	m3	mg1	mg2	mg3	C");
+    #write(save_file,num2str([lambda, m(1,1:3), m_group, C]));
+    #write(save_file,"");
+    #write(save_file,"Mode	w_wg	d_gap	m_wg	m_plus	m_minus	delta_m	a_plus	b_plus	a_minus	b_minus");
+#}
